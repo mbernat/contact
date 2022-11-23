@@ -366,7 +366,7 @@ fn contacts_from_intersection(p: &Polygon, i: &Polygon) -> Vec<Contact> {
         if a > 0.01 || b > 0.01 {
             continue;
         }
-        let normal = -(e.end - e.start).perp();
+        let normal = -(e.end - e.start).perp().normalize();
         let mut max_depth = -1e6;
         for v in &i.0 {
             let depth = -(*v - e.start).dot(normal);
@@ -468,7 +468,9 @@ impl Body {
         let t = Transform::new(next.pos, next.rot);
 
         for c in self.shape.find_contacts(&t) {
-            draw_circle(c.pos.x, c.pos.y, 5.0, RED);
+            draw_circle(c.pos.x, c.pos.y, 2.0, RED);
+            let d = c.depth.clamp(5.0, 50.0);
+            draw_line_vec(c.pos, c.pos - c.normal * d, 1.0, RED);
 
             // TODO compute optimal force magnitude
             let rel_vel = self.velocity_at(c.pos).dot(c.normal);
@@ -486,7 +488,7 @@ impl Body {
 
             // This bit resolves penetration
             // TODO compute optimal force magnitude
-            self.add_impulse_at(c.normal * c.depth * 0.001, c.pos);
+            // self.add_impulse_at(c.normal * c.depth, c.pos);
         }
 
         *self = self.predict(dt);
