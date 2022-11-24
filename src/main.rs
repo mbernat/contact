@@ -43,7 +43,7 @@ impl Rect {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Shape {
     Circle { radius: f32 },
     Polygon(Polygon),
@@ -81,7 +81,7 @@ fn collide_segment_segment(a: &Segment, b: &Segment) -> Vec<Vec2> {
     let d = -(b.end - b.start);
     let e = b.start - a.start;
     let det = c.perp_dot(d);
-    let eps = 1e-3;
+    let eps = 1e-2;
     let min = -eps;
     let max = 1.0 + eps;
     if det.abs() < 1e-12 {
@@ -111,7 +111,7 @@ fn collide_segment_segment(a: &Segment, b: &Segment) -> Vec<Vec2> {
 }
 
 // convex polygon determined by clockwise-ordered vertices
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Polygon(Vec<Vec2>);
 
 enum PolygonSegmentResult {
@@ -180,13 +180,6 @@ mod tests {
     }
 }
 
-fn point_line_dist(p: Vec2, l: &Segment) -> f32 {
-    let n = (l.end - l.start).normalize();
-    let v = p - l.start;
-    let v_proj = v.dot(n) * n;
-    (v - v_proj).length()
-}
-
 impl Polygon {
     fn from_rect(r: &Rect, t: &Transform) -> Self {
         Polygon(r.corners(t).into())
@@ -199,17 +192,6 @@ impl Polygon {
                 .map(|v| t.pos + Mat2::from_angle(t.rot) * *v)
                 .collect(),
         )
-    }
-
-    fn point_distance(&self, p: Vec2) -> f32 {
-        let mut min = 1e6;
-        for e in &self.edges() {
-            let dist = point_line_dist(p, e);
-            if dist < min {
-                min = dist
-            }
-        }
-        min
     }
 
     fn contains_point(&self, p: Vec2) -> bool {
@@ -275,7 +257,7 @@ impl Polygon {
         res
     }
 
-    fn chain(&self, other: &Polygon) -> Vec<Vec2> {
+    fn chain(&self, other: &Polygon) -> Vec<Segment> {
         let mut inside1 = vec![];
         let mut inside2 = vec![];
         let mut was_outside = false;
@@ -315,27 +297,47 @@ impl Polygon {
         }
         let mut lines = inside1.clone();
         lines.append(&mut inside2);
-        let pts: Vec<Vec2> = lines.iter().map(|s| s.start).collect();
-        /*
-        if !lines.is_empty() {
-            pts.push(lines.last().unwrap().end)
-        }
-        */
-        pts
+        lines
     }
 
-    // NOTE assumes simple intersections where the boundary is composed of only 2 chains rather than 4
-    fn intersect(&self, other: &Polygon) -> Option<Polygon> {
-        let mut c1 = self.chain(other);
-        let mut c2 = other.chain(self);
-        c1.append(&mut c2);
-        if c1.len() >= 3 {
-            let p = Polygon(c1);
-            p.render(2.0, GREEN);
-            Some(p)
-        } else {
-            None
+    // NOTE assumes simple intersections where the other polygon's intersection boundary is connected
+    fn intersect(&self, other: &Polygon) -> Vec<Segment> {
+        let chain = other.chain(self);
+        for s in chain.iter() {
+            s.render(5.0, GREEN)
         }
+        chain
+    }
+
+    // chain is the part of the other polygon's boundary that intersects us
+    fn contacts_from_intersection(&self, chain: &Vec<Segment>) -> Vec<Contact> {
+        let mut result = vec![];
+        for e in chain.iter() {
+            let diff = e.end - e.start;
+            // TODO handle very short segments properly
+            if diff.length() < 1.0 {
+                continue;
+            }
+            let normal = -diff.perp().normalize();
+            let mut max_depth = 0.0;
+            for v in &self.0 {
+                let depth = -(*v - e.start).dot(normal);
+                if depth > max_depth {
+                    max_depth = depth
+                }
+            }
+            result.push(Contact {
+                pos: e.start,
+                normal,
+                depth: max_depth,
+            });
+            result.push(Contact {
+                pos: e.end,
+                normal,
+                depth: max_depth,
+            });
+        }
+        result
     }
 
     fn render(&self, thickness: f32, color: Color) {
@@ -347,45 +349,13 @@ impl Polygon {
 
 fn ground() -> (Rect, Transform) {
     let r = Rect {
-        half_extents: [300.0, 50.0].into(),
+        half_extents: [150.0, 50.0].into(),
     };
     let t = Transform {
-        pos: [400.0, 450.0].into(),
+        pos: [350.0, 450.0].into(),
         rot: 0.0,
     };
     (r, t)
-}
-
-// p is the other polygon, i is the intersection polygon
-fn contacts_from_intersection(p: &Polygon, i: &Polygon) -> Vec<Contact> {
-    let mut result = vec![];
-    for e in &i.edges() {
-        // Ignore internal edges
-        let a = p.point_distance(e.start);
-        let b = p.point_distance(e.end);
-        if a > 0.01 || b > 0.01 {
-            continue;
-        }
-        let normal = -(e.end - e.start).perp().normalize();
-        let mut max_depth = -1e6;
-        for v in &i.0 {
-            let depth = -(*v - e.start).dot(normal);
-            if depth > max_depth {
-                max_depth = depth
-            }
-        }
-        result.push(Contact {
-            pos: e.start,
-            normal,
-            depth: max_depth,
-        });
-        result.push(Contact {
-            pos: e.end,
-            normal,
-            depth: max_depth,
-        });
-    }
-    result
 }
 
 impl Shape {
@@ -410,18 +380,14 @@ impl Shape {
                 let (r2, t2) = ground();
                 let p1 = p.transformed(t);
                 let p2 = Polygon::from_rect(&r2, &t2);
-                if let Some(ip) = p1.intersect(&p2) {
-                    contacts_from_intersection(&p2, &ip)
-                    //collide_rect_rect(t, r, &t2, &r2)
-                } else {
-                    vec![]
-                }
+                let chain = p1.intersect(&p2);
+                p1.contacts_from_intersection(&chain)
             }
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Body {
     mass: f32,
     inertia: f32,
@@ -436,62 +402,67 @@ struct Body {
 }
 
 impl Body {
-    fn velocity_at(&self, pos: Vec2) -> Vec2 {
-        self.vel + (pos - self.pos).perp() * self.omega
+    fn update_vel(&mut self, dt: f32) {
+        self.vel += self.force / self.mass * dt;
+        self.omega += self.torque / self.inertia * dt;
     }
 
-    fn predict(&self, dt: f32) -> Body {
-        let mut next = self.clone();
-        next.vel += self.force / self.mass * dt;
-        next.pos += self.vel * dt;
-        next.force = Vec2::ZERO;
-
-        next.omega += self.torque / self.inertia * dt;
-        next.rot += self.omega * dt;
-        next.torque = 0.0;
-        next
+    fn update_pos(&mut self, dt: f32) {
+        self.pos += self.vel * dt;
+        self.rot += self.omega * dt;
     }
 
-    fn add_force_at(&mut self, force: Vec2, pos: Vec2) {
-        self.force += force;
-        self.torque += (pos - self.pos).perp_dot(force);
+    fn clear_forces(&mut self) {
+        self.force = Vec2::ZERO;
+        self.torque = 0.0;
     }
 
-    fn add_impulse_at(&mut self, impulse: Vec2, pos: Vec2) {
-        self.vel += impulse / self.mass;
-        self.omega += (pos - self.pos).perp_dot(impulse) / self.inertia;
+    fn velocity_vector(&self) -> Vec3 {
+        [self.vel.x, self.vel.y, self.omega].into()
     }
 
     fn step(&mut self, dt: f32) {
-        // TODO do not update positions, only velocities
-        let next = self.predict(dt);
-        let t = Transform::new(next.pos, next.rot);
+        self.update_vel(dt);
+        let t = Transform::new(self.pos, self.rot);
+
+        let contacts = self.shape.find_contacts(&t);
 
         for c in self.shape.find_contacts(&t) {
-            draw_circle(c.pos.x, c.pos.y, 2.0, RED);
-            let d = c.depth.clamp(5.0, 50.0);
+            draw_circle(c.pos.x, c.pos.y, 3.0, RED);
+            let d = c.depth.clamp(10.0, 50.0);
             draw_line_vec(c.pos, c.pos - c.normal * d, 1.0, RED);
-
-            // TODO compute optimal force magnitude
-            let rel_vel = self.velocity_at(c.pos).dot(c.normal);
-            if rel_vel < 0.0 {
-                let j: Vec3 = [c.normal.x, c.normal.y, (c.pos - t.pos).perp_dot(c.normal)].into();
-                let w = Mat3::from_diagonal(
-                    [1.0 / self.mass, 1.0 / self.mass, 1.0 / self.inertia].into(),
-                );
-                let meff_inv = j.dot(w * j);
-                let meff = 1.0 / meff_inv;
-                let lambda = meff * -rel_vel;
-                //self.add_force_at(c.normal * lambda / dt, c.pos);
-                self.add_impulse_at(c.normal * lambda, c.pos)
-            }
-
-            // This bit resolves penetration
-            // TODO compute optimal force magnitude
-            // self.add_impulse_at(c.normal * c.depth, c.pos);
         }
 
-        *self = self.predict(dt);
+        let mut acc_impulses = vec![0.0; contacts.len()];
+
+        let w = Mat3::from_diagonal([1.0 / self.mass, 1.0 / self.mass, 1.0 / self.inertia].into());
+
+        let num_iters = 4;
+        for _i in 0..num_iters {
+            for (ci, c) in contacts.iter().enumerate() {
+                let cross = (c.pos - self.pos).perp_dot(c.normal);
+                let j: Vec3 = [c.normal.x, c.normal.y, cross].into();
+
+                let penetration_vel = -0.1 * c.depth / dt;
+                // This works very strangely
+                let rel_vel = j.dot(self.velocity_vector()) + penetration_vel;
+                let meff_inv = j.dot(w * j);
+                let meff = 1.0 / meff_inv;
+                let lambda = -meff * rel_vel;
+                let lambda_prev = acc_impulses[ci];
+                acc_impulses[ci] = (lambda_prev + lambda).max(0.0);
+                let vel_change = w * j * (acc_impulses[ci] - lambda_prev);
+                self.vel += Vec2::new(vel_change.x, vel_change.y);
+                self.omega += vel_change.z;
+
+                // This bit resolves penetration
+                // TODO compute optimal force magnitude
+                // self.add_impulse_at(c.normal * c.depth, c.pos);
+            }
+        }
+
+        self.update_pos(dt);
+        self.clear_forces();
     }
 
     fn render(&self) {
@@ -505,17 +476,12 @@ async fn main() {
     let mut body = Body {
         mass: 1.0,
         inertia: 1000.0,
-        pos: [200.0, 250.0].into(),
+        pos: [200.0, 300.0].into(),
         rot: 0.2,
         vel: [50.0, 0.0].into(),
-        omega: -0.9,
+        omega: -0.5,
         force: Vec2::ZERO,
         torque: 0.0,
-        /*
-        shape: Shape::Rect(Rect {
-            half_extents: [70.0, 40.0].into(),
-        }),
-        */
         shape: Shape::Polygon(Polygon(vec![
             [30.0, -20.0].into(),
             [40.0, 0.0].into(),
