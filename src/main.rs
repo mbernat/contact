@@ -46,6 +46,15 @@ fn impact_squares() -> World {
         half_extents: [50.0, 50.0].into(),
     };
     let s = Shape::Polygon(Polygon::from_rect(&r, &Transform::default()));
+    impact_shapes(s)
+}
+
+fn impact_circles() -> World {
+    let c = Shape::Circle { radius: 50.0 };
+    impact_shapes(c)
+}
+
+fn impact_shapes(shape: Shape) -> World {
     let b1 = Body {
         mass: 1.0,
         inertia: 1000.0,
@@ -55,7 +64,7 @@ fn impact_squares() -> World {
         omega: 0.0,
         force: Vec2::ZERO,
         torque: 0.0,
-        shape: s,
+        shape,
     };
     let b2 = Body {
         pos: [400.0, 200.0].into(),
@@ -106,7 +115,7 @@ fn ground() -> Shape {
 
 #[macroquad::main("2d physics engine")]
 async fn main() {
-    let mut engine = square_stack();
+    let mut engine = impact_circles();
     let gravity = 100.0;
 
     loop {

@@ -71,7 +71,24 @@ pub fn find_contacts(
             let chain = p2.boundary_of_intersection_with(&p1);
             Contact::contacts_from_intersection(&p1, &chain, this_body_index, other_body_index)
         }
-        // TODO implement circle contacts
+        (Shape::Circle { radius: r1 }, Shape::Circle { radius: r2 }) => {
+            let diff = t1.pos - t2.pos;
+            // TODO handle diff == 0.0
+            let normal = diff.normalize();
+            let depth = r1 + r2 - diff.length();
+            if depth >= 0.0 {
+                vec![Contact {
+                    pos: t2.pos + *r2 * normal,
+                    normal,
+                    depth,
+                    this_body_index,
+                    other_body_index,
+                }]
+            } else {
+                vec![]
+            }
+        }
+        // TODO implement circle/polygon contacts
         (_, _) => vec![],
     }
 }
