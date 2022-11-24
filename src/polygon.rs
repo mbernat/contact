@@ -67,7 +67,7 @@ impl Polygon {
                     .iter()
                     .find_map(|e| intersect_segments(e, s).first().copied())
                     .expect("Intersection");
-                if p1 == false {
+                if p2 {
                     PolygonSegmentResult::Entering(p)
                 } else {
                     PolygonSegmentResult::Leaving(p)

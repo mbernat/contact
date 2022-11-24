@@ -128,7 +128,7 @@ impl Shape {
                 draw::draw_central_line(t.pos, mat.col(0) * *radius);
                 draw::draw_central_line(t.pos, mat.col(1) * *radius);
             }
-            Shape::Polygon(p) => p.transformed(&t).render(1.0, WHITE),
+            Shape::Polygon(p) => p.transformed(t).render(1.0, WHITE),
         }
     }
 }

@@ -18,7 +18,7 @@ impl Contact {
     // chain is the part of the other polygon's boundary that intersects us
     pub fn contacts_from_intersection(
         poly: &Polygon,
-        chain: &Vec<Segment>,
+        chain: &[Segment],
         this_body_index: usize,
         other_body_index: Option<usize>,
     ) -> Vec<Contact> {

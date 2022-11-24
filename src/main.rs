@@ -11,7 +11,7 @@ mod engine;
 mod geometry;
 mod polygon;
 
-fn example_world() -> World {
+fn falling_polygons() -> World {
     let body1 = Body {
         mass: 1.0,
         inertia: 1000.0,
@@ -41,7 +41,7 @@ fn example_world() -> World {
     }
 }
 
-fn example_world_2() -> World {
+fn impact_squares() -> World {
     let r = Rect {
         half_extents: [50.0, 50.0].into(),
     };
@@ -67,6 +67,31 @@ fn example_world_2() -> World {
     }
 }
 
+fn square_stack() -> World {
+    let r = Rect {
+        half_extents: [50.0, 50.0].into(),
+    };
+    let s = Shape::Polygon(Polygon::from_rect(&r, &Transform::default()));
+    let b1 = Body {
+        mass: 1.0,
+        inertia: 1000.0,
+        pos: [300.0, 100.0].into(),
+        rot: 0.0,
+        vel: [0.0, 0.0].into(),
+        omega: 0.0,
+        force: Vec2::ZERO,
+        torque: 0.0,
+        shape: s,
+    };
+    let b2 = Body {
+        pos: [300.0, 250.0].into(),
+        ..b1.clone()
+    };
+    World {
+        bodies: vec![b1, b2],
+    }
+}
+
 // TODO move into engine
 fn ground() -> Shape {
     let r = Rect {
@@ -81,8 +106,8 @@ fn ground() -> Shape {
 
 #[macroquad::main("2d physics engine")]
 async fn main() {
-    let mut engine = example_world_2();
-    let gravity = 0.0;
+    let mut engine = square_stack();
+    let gravity = 100.0;
 
     loop {
         let dt = get_frame_time();
