@@ -1,5 +1,5 @@
 use body::Body;
-use engine::Engine;
+use engine::World;
 use geometry::{Rect, Shape, Transform};
 use macroquad::prelude::*;
 use macroquad::window::next_frame;
@@ -11,7 +11,7 @@ mod engine;
 mod geometry;
 mod polygon;
 
-fn example_world() -> Engine {
+fn example_world() -> World {
     let body1 = Body {
         mass: 1.0,
         inertia: 1000.0,
@@ -31,25 +31,39 @@ fn example_world() -> Engine {
     };
 
     let body2 = Body {
-        mass: 1.0,
-        inertia: 1000.0,
         pos: [400.0, 300.0].into(),
-        rot: 0.2,
         vel: [-50.0, 0.0].into(),
-        omega: -0.5,
-        force: Vec2::ZERO,
-        torque: 0.0,
-        shape: Shape::Polygon(Polygon(vec![
-            [30.0, -20.0].into(),
-            [40.0, 0.0].into(),
-            [50.0, 40.0].into(),
-            [-20.0, 30.0].into(),
-            [-20.0, -10.0].into(),
-        ])),
+        ..body1.clone()
     };
 
-    engine::Engine {
+    engine::World {
         bodies: vec![body1, body2],
+    }
+}
+
+fn example_world_2() -> World {
+    let r = Rect {
+        half_extents: [50.0, 50.0].into(),
+    };
+    let s = Shape::Polygon(Polygon::from_rect(&r, &Transform::default()));
+    let b1 = Body {
+        mass: 1.0,
+        inertia: 1000.0,
+        pos: [200.0, 200.0].into(),
+        rot: 0.0,
+        vel: [100.0, 0.0].into(),
+        omega: 0.0,
+        force: Vec2::ZERO,
+        torque: 0.0,
+        shape: s,
+    };
+    let b2 = Body {
+        pos: [400.0, 200.0].into(),
+        vel: [-100.0, 0.0].into(),
+        ..b1.clone()
+    };
+    World {
+        bodies: vec![b1, b2],
     }
 }
 
@@ -67,14 +81,15 @@ fn ground() -> Shape {
 
 #[macroquad::main("2d physics engine")]
 async fn main() {
-    let mut engine = example_world();
+    let mut engine = example_world_2();
+    let gravity = 0.0;
 
     loop {
         let dt = get_frame_time();
         //let dt = 0.0;
 
         for body in &mut engine.bodies {
-            body.force = [0.0, 100.0].into();
+            body.force = [0.0, gravity].into();
         }
         engine.step(dt);
         for body in &engine.bodies {

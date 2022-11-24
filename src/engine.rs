@@ -1,6 +1,7 @@
 use crate::body::Body;
 use crate::draw::draw_line_vec;
-use crate::geometry::Transform;
+use crate::geometry::{Segment, Shape, Transform};
+use crate::polygon::Polygon;
 use macroquad::color::RED;
 use macroquad::math::{Mat3, Vec2, Vec3};
 use macroquad::shapes::draw_circle;
@@ -13,11 +14,73 @@ pub struct Contact {
     pub other_body_index: Option<usize>,
 }
 
-pub struct Engine {
+impl Contact {
+    // chain is the part of the other polygon's boundary that intersects us
+    pub fn contacts_from_intersection(
+        poly: &Polygon,
+        chain: &Vec<Segment>,
+        this_body_index: usize,
+        other_body_index: Option<usize>,
+    ) -> Vec<Contact> {
+        let mut result = vec![];
+        for e in chain.iter() {
+            let diff = e.end - e.start;
+            // TODO handle very short segments properly
+            if diff.length() < 1.0 {
+                continue;
+            }
+            let normal = -diff.perp().normalize();
+            let mut max_depth = 0.0;
+            for v in &poly.0 {
+                let depth = -(*v - e.start).dot(normal);
+                if depth > max_depth {
+                    max_depth = depth
+                }
+            }
+            result.push(Contact {
+                pos: e.start,
+                normal,
+                depth: max_depth,
+                this_body_index,
+                other_body_index,
+            });
+            result.push(Contact {
+                pos: e.end,
+                normal,
+                depth: max_depth,
+                this_body_index,
+                other_body_index,
+            });
+        }
+        result
+    }
+}
+
+pub fn find_contacts(
+    this: &Shape,
+    t1: &Transform,
+    other: &Shape,
+    t2: &Transform,
+    this_body_index: usize,
+    other_body_index: Option<usize>,
+) -> Vec<crate::engine::Contact> {
+    match (this, other) {
+        (Shape::Polygon(p1), Shape::Polygon(p2)) => {
+            let p1 = p1.transformed(t1);
+            let p2 = p2.transformed(t2);
+            let chain = p2.boundary_of_intersection_with(&p1);
+            Contact::contacts_from_intersection(&p1, &chain, this_body_index, other_body_index)
+        }
+        // TODO implement circle contacts
+        (_, _) => vec![],
+    }
+}
+
+pub struct World {
     pub bodies: Vec<Body>,
 }
 
-impl Engine {
+impl World {
     pub fn step(&mut self, dt: f32) {
         for body in &mut self.bodies {
             body.update_vel(dt);
@@ -43,7 +106,8 @@ impl Engine {
                     continue;
                 }
                 let other_t = Transform::new(other_body.pos, other_body.rot);
-                let mut contacts = body.shape.find_contacts(
+                let mut contacts = find_contacts(
+                    &body.shape,
                     &t,
                     &other_body.shape,
                     &other_t,
@@ -55,9 +119,14 @@ impl Engine {
 
             // TODO move ground() into the engine geometry
             // Contacts with geometry
-            let mut contacts =
-                body.shape
-                    .find_contacts(&t, &crate::ground(), &identi_t, this_body_index, None);
+            let mut contacts = find_contacts(
+                &body.shape,
+                &t,
+                &crate::ground(),
+                &identi_t,
+                this_body_index,
+                None,
+            );
             result.append(&mut contacts);
         }
         result

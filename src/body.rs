@@ -23,7 +23,7 @@ impl Body {
 
     pub(crate) fn update_pos(&mut self, dt: f32) {
         self.pos += self.vel * dt;
-        self.rot += self.omega * dt;
+        self.rot = (self.rot + self.omega * dt).rem_euclid(std::f32::consts::TAU)
     }
 
     pub(crate) fn clear_forces(&mut self) {

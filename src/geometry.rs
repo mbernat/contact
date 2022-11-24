@@ -27,7 +27,7 @@ impl Segment {
     }
 }
 
-pub fn collide_segment_segment(a: &Segment, b: &Segment) -> Vec<Vec2> {
+pub fn intersect_segments(a: &Segment, b: &Segment) -> Vec<Vec2> {
     let c = a.end - a.start;
     let d = -(b.end - b.start);
     let e = b.start - a.start;
@@ -63,7 +63,7 @@ pub fn collide_segment_segment(a: &Segment, b: &Segment) -> Vec<Vec2> {
 
 #[cfg(test)]
 mod tests {
-    use super::collide_segment_segment;
+    use super::intersect_segments;
     use super::Segment;
 
     #[test]
@@ -76,7 +76,7 @@ mod tests {
             start: [218.121979, 342.987549].into(),
             end: [245.500473, 400.0].into(),
         };
-        let result = collide_segment_segment(&a, &b);
+        let result = intersect_segments(&a, &b);
         assert_ne!(result, vec![])
     }
 
@@ -90,7 +90,7 @@ mod tests {
             start: [233.375381, 337.175507].into(),
             end: [241.056549, 399.952911].into(),
         };
-        let result = collide_segment_segment(&a, &b);
+        let result = intersect_segments(&a, &b);
         assert_ne!(result, vec![])
     }
 }
@@ -129,29 +129,6 @@ impl Shape {
                 draw::draw_central_line(t.pos, mat.col(1) * *radius);
             }
             Shape::Polygon(p) => p.transformed(&t).render(1.0, WHITE),
-        }
-    }
-}
-
-// TODO move to engine::Contact
-impl Shape {
-    pub fn find_contacts(
-        &self,
-        t1: &Transform,
-        other: &Shape,
-        t2: &Transform,
-        this_body_index: usize,
-        other_body_index: Option<usize>,
-    ) -> Vec<crate::engine::Contact> {
-        match (self, other) {
-            (Shape::Polygon(p1), Shape::Polygon(p2)) => {
-                let p1 = p1.transformed(t1);
-                let p2 = p2.transformed(t2);
-                let chain = p1.intersect(&p2);
-                p1.contacts_from_intersection(&chain, this_body_index, other_body_index)
-            }
-            // TODO implement circle contacts
-            (_, _) => vec![],
         }
     }
 }

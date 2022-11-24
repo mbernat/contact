@@ -1,5 +1,4 @@
-use crate::engine::Contact;
-use crate::geometry::{collide_segment_segment, Rect, Segment, Transform};
+use crate::geometry::{intersect_segments, Rect, Segment, Transform};
 use macroquad::color::{Color, GREEN};
 use macroquad::math::{Mat2, Vec2};
 
@@ -43,7 +42,7 @@ impl Polygon {
             (false, false) => {
                 let mut cross = vec![];
                 for e in &self.edges() {
-                    if let Some(p) = collide_segment_segment(s, e).first() {
+                    if let Some(p) = intersect_segments(s, e).first() {
                         cross.push(*p)
                     }
                 }
@@ -66,7 +65,7 @@ impl Polygon {
                 let p = self
                     .edges()
                     .iter()
-                    .find_map(|e| collide_segment_segment(e, s).first().copied())
+                    .find_map(|e| intersect_segments(e, s).first().copied())
                     .expect("Intersection");
                 if p1 == false {
                     PolygonSegmentResult::Entering(p)
@@ -92,7 +91,9 @@ impl Polygon {
         res
     }
 
-    pub fn chain(&self, other: &Polygon) -> Vec<Segment> {
+    // Produces part of the intersection's boundary that belongs to self
+    // NOTE: assumes this boundary part is connected; in deep overlaps there can be two such parts
+    pub fn boundary_of_intersection_with(&self, other: &Polygon) -> Vec<Segment> {
         let mut inside1 = vec![];
         let mut inside2 = vec![];
         let mut was_outside = false;
@@ -132,57 +133,12 @@ impl Polygon {
         }
         let mut lines = inside1.clone();
         lines.append(&mut inside2);
+
+        for s in lines.iter() {
+            s.render(3.0, GREEN)
+        }
+
         lines
-    }
-
-    // NOTE assumes simple intersections where the other polygon's intersection boundary is connected
-    pub fn intersect(&self, other: &Polygon) -> Vec<Segment> {
-        let chain = other.chain(self);
-        for s in chain.iter() {
-            s.render(5.0, GREEN)
-        }
-        chain
-    }
-
-    // TODO move to engine::Contact
-    // chain is the part of the other polygon's boundary that intersects us
-    pub fn contacts_from_intersection(
-        &self,
-        chain: &Vec<Segment>,
-        this_body_index: usize,
-        other_body_index: Option<usize>,
-    ) -> Vec<Contact> {
-        let mut result = vec![];
-        for e in chain.iter() {
-            let diff = e.end - e.start;
-            // TODO handle very short segments properly
-            if diff.length() < 1.0 {
-                continue;
-            }
-            let normal = -diff.perp().normalize();
-            let mut max_depth = 0.0;
-            for v in &self.0 {
-                let depth = -(*v - e.start).dot(normal);
-                if depth > max_depth {
-                    max_depth = depth
-                }
-            }
-            result.push(Contact {
-                pos: e.start,
-                normal,
-                depth: max_depth,
-                this_body_index,
-                other_body_index,
-            });
-            result.push(Contact {
-                pos: e.end,
-                normal,
-                depth: max_depth,
-                this_body_index,
-                other_body_index,
-            });
-        }
-        result
     }
 
     pub fn render(&self, thickness: f32, color: Color) {
