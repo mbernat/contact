@@ -13,6 +13,8 @@ struct Contact {
     pos: Vec2,
     normal: Vec2,
     depth: f32,
+    this_body_index: usize,
+    other_body_index: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -310,7 +312,12 @@ impl Polygon {
     }
 
     // chain is the part of the other polygon's boundary that intersects us
-    fn contacts_from_intersection(&self, chain: &Vec<Segment>) -> Vec<Contact> {
+    fn contacts_from_intersection(
+        &self,
+        chain: &Vec<Segment>,
+        this_body_index: usize,
+        other_body_index: Option<usize>,
+    ) -> Vec<Contact> {
         let mut result = vec![];
         for e in chain.iter() {
             let diff = e.end - e.start;
@@ -330,11 +337,15 @@ impl Polygon {
                 pos: e.start,
                 normal,
                 depth: max_depth,
+                this_body_index,
+                other_body_index,
             });
             result.push(Contact {
                 pos: e.end,
                 normal,
                 depth: max_depth,
+                this_body_index,
+                other_body_index,
             });
         }
         result
@@ -349,7 +360,7 @@ impl Polygon {
 
 fn ground() -> (Rect, Transform) {
     let r = Rect {
-        half_extents: [150.0, 50.0].into(),
+        half_extents: [250.0, 50.0].into(),
     };
     let t = Transform {
         pos: [350.0, 450.0].into(),
@@ -359,30 +370,23 @@ fn ground() -> (Rect, Transform) {
 }
 
 impl Shape {
-    fn find_contacts(&self, t: &Transform) -> Vec<Contact> {
-        match self {
-            // TODO implement circle rect collision
-            Shape::Circle { radius } => {
-                let bottom = t.pos.y + radius;
-                if bottom >= 400.0 {
-                    let pos: Vec2 = [t.pos.x, bottom].into();
-                    let normal = -Vec2::Y;
-                    vec![Contact {
-                        pos,
-                        normal,
-                        depth: bottom - 400.0,
-                    }]
-                } else {
-                    vec![]
-                }
-            }
-            Shape::Polygon(p) => {
-                let (r2, t2) = ground();
-                let p1 = p.transformed(t);
-                let p2 = Polygon::from_rect(&r2, &t2);
+    fn find_contacts(
+        &self,
+        t1: &Transform,
+        other: &Shape,
+        t2: &Transform,
+        this_body_index: usize,
+        other_body_index: Option<usize>,
+    ) -> Vec<Contact> {
+        match (self, other) {
+            (Shape::Polygon(p1), Shape::Polygon(p2)) => {
+                let p1 = p1.transformed(t1);
+                let p2 = p2.transformed(t2);
                 let chain = p1.intersect(&p2);
-                p1.contacts_from_intersection(&chain)
+                p1.contacts_from_intersection(&chain, this_body_index, other_body_index)
             }
+            // TODO implement circle contacts
+            (_, _) => vec![],
         }
     }
 }
@@ -421,59 +425,115 @@ impl Body {
         [self.vel.x, self.vel.y, self.omega].into()
     }
 
-    fn step(&mut self, dt: f32) {
-        self.update_vel(dt);
-        let t = Transform::new(self.pos, self.rot);
-
-        let contacts = self.shape.find_contacts(&t);
-
-        for c in self.shape.find_contacts(&t) {
-            draw_circle(c.pos.x, c.pos.y, 3.0, RED);
-            let d = c.depth.clamp(10.0, 50.0);
-            draw_line_vec(c.pos, c.pos - c.normal * d, 1.0, RED);
-        }
-
-        let mut acc_impulses = vec![0.0; contacts.len()];
-
-        let w = Mat3::from_diagonal([1.0 / self.mass, 1.0 / self.mass, 1.0 / self.inertia].into());
-
-        let num_iters = 4;
-        for _i in 0..num_iters {
-            for (ci, c) in contacts.iter().enumerate() {
-                let cross = (c.pos - self.pos).perp_dot(c.normal);
-                let j: Vec3 = [c.normal.x, c.normal.y, cross].into();
-
-                let penetration_vel = -0.1 * c.depth / dt;
-                // This works very strangely
-                let rel_vel = j.dot(self.velocity_vector()) + penetration_vel;
-                let meff_inv = j.dot(w * j);
-                let meff = 1.0 / meff_inv;
-                let lambda = -meff * rel_vel;
-                let lambda_prev = acc_impulses[ci];
-                acc_impulses[ci] = (lambda_prev + lambda).max(0.0);
-                let vel_change = w * j * (acc_impulses[ci] - lambda_prev);
-                self.vel += Vec2::new(vel_change.x, vel_change.y);
-                self.omega += vel_change.z;
-
-                // This bit resolves penetration
-                // TODO compute optimal force magnitude
-                // self.add_impulse_at(c.normal * c.depth, c.pos);
-            }
-        }
-
-        self.update_pos(dt);
-        self.clear_forces();
-    }
-
     fn render(&self) {
         let t = Transform::new(self.pos, self.rot);
         self.shape.render(&t);
     }
 }
 
+struct Engine {
+    bodies: Vec<Body>,
+}
+
+impl Engine {
+    fn step(&mut self, dt: f32) {
+        for body in &mut self.bodies {
+            body.update_vel(dt);
+        }
+
+        let contacts = self.find_contacts();
+        self.solve_contacts(dt, &contacts);
+
+        for body in &mut self.bodies {
+            body.update_pos(dt);
+            body.clear_forces();
+        }
+    }
+
+    fn find_contacts(&self) -> Vec<Contact> {
+        let mut result = vec![];
+        let (ground_r, ground_t) = ground();
+        let ground_shape = Shape::Polygon(Polygon::from_rect(&ground_r, &ground_t));
+        let identi_t = Transform::new(Vec2::ZERO, 0.0);
+        for (this_body_index, body) in self.bodies.iter().enumerate() {
+            let t = Transform::new(body.pos, body.rot);
+            // Contacts with bodies
+            for (other_body_index, other_body) in self.bodies.iter().enumerate() {
+                if this_body_index == other_body_index {
+                    continue;
+                }
+                let other_t = Transform::new(other_body.pos, other_body.rot);
+                let mut contacts = body.shape.find_contacts(
+                    &t,
+                    &other_body.shape,
+                    &other_t,
+                    this_body_index,
+                    Some(other_body_index),
+                );
+                result.append(&mut contacts);
+            }
+
+            // Contacts with geometry
+            let mut contacts =
+                body.shape
+                    .find_contacts(&t, &ground_shape, &identi_t, this_body_index, None);
+            result.append(&mut contacts);
+        }
+        result
+    }
+
+    fn solve_contacts(&mut self, dt: f32, contacts: &Vec<Contact>) {
+        for c in contacts {
+            draw_circle(c.pos.x, c.pos.y, 3.0, RED);
+            let d = c.depth.clamp(10.0, 50.0);
+            draw_line_vec(c.pos, c.pos - c.normal * d, 1.0, RED);
+        }
+
+        let mut acc_impulses = vec![0.0; contacts.len()];
+        let num_iters = 4;
+
+        for _i in 0..num_iters {
+            for (ci, c) in contacts.iter().enumerate() {
+                let other_rel_vel = if let Some(other_body_index) = c.other_body_index {
+                    let other_body = &self.bodies[other_body_index];
+                    let cross = (c.pos - other_body.pos).perp_dot(c.normal);
+                    let j: Vec3 = [c.normal.x, c.normal.y, cross].into();
+                    j.dot(other_body.velocity_vector())
+                } else {
+                    0.0
+                };
+
+                let this_body = &mut self.bodies[c.this_body_index];
+                let w = Mat3::from_diagonal(
+                    [
+                        1.0 / this_body.mass,
+                        1.0 / this_body.mass,
+                        1.0 / this_body.inertia,
+                    ]
+                    .into(),
+                );
+                let cross = (c.pos - this_body.pos).perp_dot(c.normal);
+                let j: Vec3 = [c.normal.x, c.normal.y, cross].into();
+
+                // Should be ~0.8 but it adds too much bounciness on impact
+                let penetration_vel = -0.05 * c.depth / dt;
+                let rel_vel = j.dot(this_body.velocity_vector()) - other_rel_vel + penetration_vel;
+                let meff_inv = j.dot(w * j);
+                let meff = 1.0 / meff_inv;
+                let lambda = -meff * rel_vel;
+                let lambda_prev = acc_impulses[ci];
+                acc_impulses[ci] = (lambda_prev + lambda).max(0.0);
+                let vel_change = w * j * (acc_impulses[ci] - lambda_prev);
+                this_body.vel += Vec2::new(vel_change.x, vel_change.y);
+                this_body.omega += vel_change.z;
+            }
+        }
+    }
+}
+
 #[macroquad::main("Hi")]
 async fn main() {
-    let mut body = Body {
+    let body1 = Body {
         mass: 1.0,
         inertia: 1000.0,
         pos: [200.0, 300.0].into(),
@@ -491,13 +551,39 @@ async fn main() {
         ])),
     };
 
+    let body2 = Body {
+        mass: 1.0,
+        inertia: 1000.0,
+        pos: [400.0, 300.0].into(),
+        rot: 0.2,
+        vel: [-50.0, 0.0].into(),
+        omega: -0.5,
+        force: Vec2::ZERO,
+        torque: 0.0,
+        shape: Shape::Polygon(Polygon(vec![
+            [30.0, -20.0].into(),
+            [40.0, 0.0].into(),
+            [50.0, 40.0].into(),
+            [-20.0, 30.0].into(),
+            [-20.0, -10.0].into(),
+        ])),
+    };
+
+    let mut engine = Engine {
+        bodies: vec![body1, body2],
+    };
+
     loop {
         let dt = get_frame_time();
         //let dt = 0.0;
 
-        body.force = [0.0, 100.0].into();
-        body.step(dt);
-        body.render();
+        for body in &mut engine.bodies {
+            body.force = [0.0, 100.0].into();
+        }
+        engine.step(dt);
+        for body in &engine.bodies {
+            body.render();
+        }
         let g = ground();
         let p = Polygon(g.0.corners(&g.1).into());
         p.render(1.0, WHITE);
