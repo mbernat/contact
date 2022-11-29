@@ -36,9 +36,7 @@ fn falling_polygons() -> World {
         ..body1.clone()
     };
 
-    engine::World {
-        bodies: vec![body1, body2],
-    }
+    World::new(&vec![body1, body2])
 }
 
 fn impact_squares() -> World {
@@ -55,7 +53,7 @@ fn impact_circles() -> World {
 }
 
 fn impact_shapes(shape: Shape) -> World {
-    let b1 = Body {
+    let body1 = Body {
         mass: 1.0,
         inertia: 1000.0,
         pos: [200.0, 200.0].into(),
@@ -66,14 +64,12 @@ fn impact_shapes(shape: Shape) -> World {
         torque: 0.0,
         shape,
     };
-    let b2 = Body {
+    let body2 = Body {
         pos: [400.0, 200.0].into(),
         vel: [-100.0, 0.0].into(),
-        ..b1.clone()
+        ..body1.clone()
     };
-    World {
-        bodies: vec![b1, b2],
-    }
+    World::new(&vec![body1, body2])
 }
 
 fn square_stack() -> World {
@@ -81,7 +77,7 @@ fn square_stack() -> World {
         half_extents: [50.0, 50.0].into(),
     };
     let s = Shape::Polygon(Polygon::from_rect(&r, &Transform::default()));
-    let b1 = Body {
+    let body1 = Body {
         mass: 1.0,
         inertia: 1000.0,
         pos: [300.0, 100.0].into(),
@@ -92,13 +88,11 @@ fn square_stack() -> World {
         torque: 0.0,
         shape: s,
     };
-    let b2 = Body {
+    let body2 = Body {
         pos: [300.0, 250.0].into(),
-        ..b1.clone()
+        ..body1.clone()
     };
-    World {
-        bodies: vec![b1, b2],
-    }
+    World::new(&vec![body1, body2])
 }
 
 // TODO move into engine
@@ -113,22 +107,78 @@ fn ground() -> Shape {
     Shape::Polygon(Polygon::from_rect(&r, &t))
 }
 
+struct Control {
+    simulate: bool,
+    history: Vec<World>,
+    index: usize,
+}
+
+impl Control {
+    fn push(&mut self, world: &World) {
+        self.history.push(world.clone());
+        self.index += 1;
+    }
+
+    fn current(&self) -> &World {
+        &self.history[self.index]
+    }
+}
+
 #[macroquad::main("2d physics engine")]
 async fn main() {
-    let mut engine = impact_circles();
     let gravity = 100.0;
+
+    let world = impact_circles();
+    let history = vec![world.clone()];
+    let mut control = Control {
+        simulate: true,
+        history,
+        index: 0,
+    };
 
     loop {
         let dt = get_frame_time();
         //let dt = 0.0;
 
-        for body in &mut engine.bodies {
-            body.force = [0.0, gravity].into();
+        if is_key_pressed(KeyCode::Space) {
+            control.simulate = !control.simulate;
+            if control.simulate {
+                control.index = control.history.len() - 1;
+            }
         }
-        engine.step(dt);
-        for body in &engine.bodies {
-            body.render();
+
+        if is_key_pressed(KeyCode::Enter) {
+            let _: Vec<World> = control.history.drain(control.index + 1..).collect();
+            control.simulate = true;
         }
+
+        if is_key_down(KeyCode::Left) {
+            control.simulate = false;
+            if control.index > 0 {
+                control.index -= 1;
+            }
+        }
+
+        if is_key_down(KeyCode::Right) {
+            control.simulate = false;
+            if control.index < control.history.len() - 1{
+                control.index += 1;
+            }
+        }
+
+        let mut world = control.history.last().unwrap().clone();
+
+        if control.simulate {
+            for body in &mut world.bodies {
+                body.force = [0.0, gravity].into();
+            }
+            world.step(dt);
+            control.push(&world);
+        }
+
+        let snapshot = &control.current();
+        snapshot.render();
+
         let g = ground();
         g.render(&Transform::default());
 

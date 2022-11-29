@@ -6,6 +6,7 @@ use macroquad::color::RED;
 use macroquad::math::{Mat3, Vec2, Vec3};
 use macroquad::shapes::draw_circle;
 
+#[derive(Clone)]
 pub struct Contact {
     pub pos: Vec2,
     pub normal: Vec2,
@@ -93,18 +94,24 @@ pub fn find_contacts(
     }
 }
 
+#[derive(Clone)]
 pub struct World {
     pub bodies: Vec<Body>,
+    contacts: Vec<Contact>
 }
 
 impl World {
+    pub fn new(bodies: &Vec<Body>) -> World {
+        World{bodies: bodies.clone(), contacts: vec![]}
+    }
+
     pub fn step(&mut self, dt: f32) {
         for body in &mut self.bodies {
             body.update_vel(dt);
         }
 
-        let contacts = self.find_contacts();
-        self.solve_contacts(dt, &contacts);
+        self.contacts = self.find_contacts();
+        self.solve_contacts(dt);
 
         for body in &mut self.bodies {
             body.update_pos(dt);
@@ -149,18 +156,12 @@ impl World {
         result
     }
 
-    fn solve_contacts(&mut self, dt: f32, contacts: &Vec<Contact>) {
-        for c in contacts {
-            draw_circle(c.pos.x, c.pos.y, 3.0, RED);
-            let d = c.depth.clamp(10.0, 50.0);
-            draw_line_vec(c.pos, c.pos - c.normal * d, 1.0, RED);
-        }
-
-        let mut acc_impulses = vec![0.0; contacts.len()];
+    fn solve_contacts(&mut self, dt: f32) {
+        let mut acc_impulses = vec![0.0; self.contacts.len()];
         let num_iters = 4;
 
         for _i in 0..num_iters {
-            for (ci, c) in contacts.iter().enumerate() {
+            for (ci, c) in self.contacts.iter().enumerate() {
                 let other_rel_vel = if let Some(other_body_index) = c.other_body_index {
                     let other_body = &self.bodies[other_body_index];
                     let cross = (c.pos - other_body.pos).perp_dot(c.normal);
@@ -194,6 +195,18 @@ impl World {
                 this_body.vel += Vec2::new(vel_change.x, vel_change.y);
                 this_body.omega += vel_change.z;
             }
+        }
+    }
+
+    pub fn render(&self) {
+        for b in &self.bodies {
+            b.render();
+        }
+
+        for c in &self.contacts {
+            draw_circle(c.pos.x, c.pos.y, 3.0, RED);
+            let d = c.depth.clamp(10.0, 50.0);
+            draw_line_vec(c.pos, c.pos - c.normal * d, 1.0, RED);
         }
     }
 }

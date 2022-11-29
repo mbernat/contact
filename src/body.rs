@@ -1,4 +1,5 @@
-use crate::geometry::{Shape, Transform};
+use crate::{geometry::{Shape, Transform}, draw::draw_line_vec};
+use macroquad::color::BLUE;
 use macroquad::math::{Vec2, Vec3};
 
 #[derive(Clone, Debug)]
@@ -38,5 +39,6 @@ impl Body {
     pub(crate) fn render(&self) {
         let t = Transform::new(self.pos, self.rot);
         self.shape.render(&t);
+        draw_line_vec(self.pos, self.pos + self.vel, 1.0, BLUE);
     }
 }
