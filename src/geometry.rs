@@ -3,7 +3,7 @@ use crate::polygon::Polygon;
 use macroquad::prelude as mq;
 use macroquad::prelude::{Color, Mat2, Vec2, WHITE};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Transform {
     pub pos: Vec2,
     pub rot: f32,
@@ -130,5 +130,17 @@ impl Shape {
             }
             Shape::Polygon(p) => p.transformed(t).render(1.0, WHITE),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct Geometry {
+    pub trans: Transform,
+    pub shape: Shape,
+}
+
+impl Geometry {
+    pub fn render(&self) {
+        self.shape.render(&self.trans);
     }
 }

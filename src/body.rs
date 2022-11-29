@@ -1,4 +1,7 @@
-use crate::{geometry::{Shape, Transform}, draw::draw_line_vec};
+use crate::{
+    draw::draw_line_vec,
+    geometry::{Shape, Transform},
+};
 use macroquad::color::BLUE;
 use macroquad::math::{Vec2, Vec3};
 

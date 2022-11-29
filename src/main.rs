@@ -1,6 +1,6 @@
 use body::Body;
 use engine::World;
-use geometry::{Rect, Shape, Transform};
+use geometry::{Geometry, Rect, Shape, Transform};
 use macroquad::prelude::*;
 use macroquad::window::next_frame;
 use polygon::Polygon;
@@ -11,7 +11,7 @@ mod engine;
 mod geometry;
 mod polygon;
 
-fn falling_polygons() -> World {
+fn _falling_polygons() -> World {
     let body1 = Body {
         mass: 1.0,
         inertia: 1000.0,
@@ -36,10 +36,10 @@ fn falling_polygons() -> World {
         ..body1.clone()
     };
 
-    World::new(&vec![body1, body2])
+    World::new(&[body1, body2], &[ground()])
 }
 
-fn impact_squares() -> World {
+fn _impact_squares() -> World {
     let r = Rect {
         half_extents: [50.0, 50.0].into(),
     };
@@ -57,7 +57,7 @@ fn impact_shapes(shape: Shape) -> World {
         mass: 1.0,
         inertia: 1000.0,
         pos: [200.0, 200.0].into(),
-        rot: 0.0,
+        rot: 0.1,
         vel: [100.0, 0.0].into(),
         omega: 0.0,
         force: Vec2::ZERO,
@@ -69,10 +69,10 @@ fn impact_shapes(shape: Shape) -> World {
         vel: [-100.0, 0.0].into(),
         ..body1.clone()
     };
-    World::new(&vec![body1, body2])
+    World::new(&[body1, body2], &[ground()])
 }
 
-fn square_stack() -> World {
+fn _square_stack() -> World {
     let r = Rect {
         half_extents: [50.0, 50.0].into(),
     };
@@ -92,11 +92,11 @@ fn square_stack() -> World {
         pos: [300.0, 250.0].into(),
         ..body1.clone()
     };
-    World::new(&vec![body1, body2])
+    World::new(&[body1, body2], &[ground()])
 }
 
 // TODO move into engine
-fn ground() -> Shape {
+fn ground() -> Geometry {
     let r = Rect {
         half_extents: [250.0, 50.0].into(),
     };
@@ -104,7 +104,8 @@ fn ground() -> Shape {
         pos: [350.0, 450.0].into(),
         rot: 0.0,
     };
-    Shape::Polygon(Polygon::from_rect(&r, &t))
+    let p = Shape::Polygon(Polygon::from_rect(&r, &Transform::default()));
+    Geometry { trans: t, shape: p }
 }
 
 struct Control {
@@ -119,8 +120,36 @@ impl Control {
         self.index += 1;
     }
 
-    fn current(&self) -> &World {
+    fn selected(&self) -> &World {
         &self.history[self.index]
+    }
+
+    fn process_input(&mut self) {
+        if is_key_pressed(KeyCode::Space) {
+            self.simulate = !self.simulate;
+            if self.simulate {
+                self.index = self.history.len() - 1;
+            }
+        }
+
+        if is_key_pressed(KeyCode::Enter) {
+            let _: Vec<World> = self.history.drain(self.index + 1..).collect();
+            self.simulate = true;
+        }
+
+        if is_key_down(KeyCode::Left) {
+            self.simulate = false;
+            if self.index > 0 {
+                self.index -= 1;
+            }
+        }
+
+        if is_key_down(KeyCode::Right) {
+            self.simulate = false;
+            if self.index < self.history.len() - 1 {
+                self.index += 1;
+            }
+        }
     }
 }
 
@@ -140,35 +169,10 @@ async fn main() {
         let dt = get_frame_time();
         //let dt = 0.0;
 
-        if is_key_pressed(KeyCode::Space) {
-            control.simulate = !control.simulate;
-            if control.simulate {
-                control.index = control.history.len() - 1;
-            }
-        }
-
-        if is_key_pressed(KeyCode::Enter) {
-            let _: Vec<World> = control.history.drain(control.index + 1..).collect();
-            control.simulate = true;
-        }
-
-        if is_key_down(KeyCode::Left) {
-            control.simulate = false;
-            if control.index > 0 {
-                control.index -= 1;
-            }
-        }
-
-        if is_key_down(KeyCode::Right) {
-            control.simulate = false;
-            if control.index < control.history.len() - 1{
-                control.index += 1;
-            }
-        }
-
-        let mut world = control.history.last().unwrap().clone();
+        control.process_input();
 
         if control.simulate {
+            let mut world = control.history.last().unwrap().clone();
             for body in &mut world.bodies {
                 body.force = [0.0, gravity].into();
             }
@@ -176,11 +180,8 @@ async fn main() {
             control.push(&world);
         }
 
-        let snapshot = &control.current();
+        let snapshot = control.selected();
         snapshot.render();
-
-        let g = ground();
-        g.render(&Transform::default());
 
         next_frame().await;
     }

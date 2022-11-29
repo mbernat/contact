@@ -1,6 +1,6 @@
 use crate::body::Body;
 use crate::draw::draw_line_vec;
-use crate::geometry::{Segment, Shape, Transform};
+use crate::geometry::{Geometry, Segment, Shape, Transform};
 use crate::polygon::Polygon;
 use macroquad::color::RED;
 use macroquad::math::{Mat3, Vec2, Vec3};
@@ -58,28 +58,26 @@ impl Contact {
 }
 
 pub fn find_contacts(
-    this: &Shape,
-    t1: &Transform,
-    other: &Shape,
-    t2: &Transform,
+    this: &Geometry,
+    other: &Geometry,
     this_body_index: usize,
     other_body_index: Option<usize>,
 ) -> Vec<crate::engine::Contact> {
-    match (this, other) {
+    match (&this.shape, &other.shape) {
         (Shape::Polygon(p1), Shape::Polygon(p2)) => {
-            let p1 = p1.transformed(t1);
-            let p2 = p2.transformed(t2);
+            let p1 = p1.transformed(&this.trans);
+            let p2 = p2.transformed(&other.trans);
             let chain = p2.boundary_of_intersection_with(&p1);
             Contact::contacts_from_intersection(&p1, &chain, this_body_index, other_body_index)
         }
         (Shape::Circle { radius: r1 }, Shape::Circle { radius: r2 }) => {
-            let diff = t1.pos - t2.pos;
+            let diff = this.trans.pos - other.trans.pos;
             // TODO handle diff == 0.0
             let normal = diff.normalize();
             let depth = r1 + r2 - diff.length();
             if depth >= 0.0 {
                 vec![Contact {
-                    pos: t2.pos + *r2 * normal,
+                    pos: other.trans.pos + *r2 * normal,
                     normal,
                     depth,
                     this_body_index,
@@ -97,12 +95,17 @@ pub fn find_contacts(
 #[derive(Clone)]
 pub struct World {
     pub bodies: Vec<Body>,
-    contacts: Vec<Contact>
+    pub geometry: Vec<Geometry>,
+    contacts: Vec<Contact>,
 }
 
 impl World {
-    pub fn new(bodies: &Vec<Body>) -> World {
-        World{bodies: bodies.clone(), contacts: vec![]}
+    pub fn new(bodies: &[Body], geometry: &[Geometry]) -> World {
+        World {
+            bodies: bodies.to_vec(),
+            geometry: geometry.to_vec(),
+            contacts: vec![],
+        }
     }
 
     pub fn step(&mut self, dt: f32) {
@@ -121,37 +124,37 @@ impl World {
 
     fn find_contacts(&self) -> Vec<Contact> {
         let mut result = vec![];
-        let identi_t = Transform::new(Vec2::ZERO, 0.0);
         for (this_body_index, body) in self.bodies.iter().enumerate() {
             let t = Transform::new(body.pos, body.rot);
+            let this_geom = Geometry {
+                trans: t,
+                shape: body.shape.clone(),
+            };
+
             // Contacts with bodies
             for (other_body_index, other_body) in self.bodies.iter().enumerate() {
                 if this_body_index == other_body_index {
                     continue;
                 }
                 let other_t = Transform::new(other_body.pos, other_body.rot);
+                let other_geom = Geometry {
+                    trans: other_t,
+                    shape: other_body.shape.clone(),
+                };
                 let mut contacts = find_contacts(
-                    &body.shape,
-                    &t,
-                    &other_body.shape,
-                    &other_t,
+                    &this_geom,
+                    &other_geom,
                     this_body_index,
                     Some(other_body_index),
                 );
                 result.append(&mut contacts);
             }
 
-            // TODO move ground() into the engine geometry
             // Contacts with geometry
-            let mut contacts = find_contacts(
-                &body.shape,
-                &t,
-                &crate::ground(),
-                &identi_t,
-                this_body_index,
-                None,
-            );
-            result.append(&mut contacts);
+            for geom in self.geometry.iter() {
+                let mut contacts = find_contacts(&this_geom, geom, this_body_index, None);
+                result.append(&mut contacts);
+            }
         }
         result
     }
@@ -199,6 +202,10 @@ impl World {
     }
 
     pub fn render(&self) {
+        for g in &self.geometry {
+            g.render();
+        }
+
         for b in &self.bodies {
             b.render();
         }
